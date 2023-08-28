@@ -1,0 +1,47 @@
+name: Trivy Static Analysis
+on: 
+  pull_request:
+    paths:
+      - 'charts/**'
+
+jobs:
+  trivy:
+    name: Trivy GitHub Action
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get Exclude Directories Set
+        id: get-exclude-directories-set
+        run: |
+          git fetch
+          CHANGED_DIR_REGEX=$(git diff --name-only HEAD origin/main | grep -E "^charts/" | awk -F / '{print $2}' | sort | uniq | sed -e '$ ! s/$/|/g' | tr -d '\n')
+          echo "EXCLUDE_DIR_SET=$(ls charts | sed -E "/$CHANGED_DIR_REGEX/d" | sed -e '$ ! s/$/,/g' | tr -d '\n')" >> "$GITHUB_OUTPUT"
+
+      - name: Run Trivy vulnerability scanner in config mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: charts/
+          exit-code: 0
+          skip-dirs: ${{ steps.get-exclude-directories-set.outputs.EXCLUDE_DIR_SET }}
+          format: json
+          output: results.json
+          severity: 'HIGH,CRITICAL,MEDIUM'
+
+      - name: Generate a token
+        id: generate-token
+        uses: tibdex/github-app-token@v1.7.0
+        with:
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+
+      - name: Run reviewdog
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ steps.generate-token.outputs.token }} 
+        run: jq -n --slurpfile trivy results.json -f .github/workflows/jq/trivy.jq | reviewdog -f=rdjson -reporter=github-pr-review -tee
