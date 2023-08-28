@@ -1,0 +1,34 @@
+name: Kics Static Analysis
+on: 
+  pull_request:
+    paths:
+      - 'charts/**'
+
+jobs:
+  kics:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Get Changed Charts Set
+      id: get-changed-charts-set
+      run: |
+        git fetch
+        echo "CHANGED_CHARTS=$(git diff --name-only HEAD origin/main | grep -E "^charts/" | awk -F / '{print "charts/"$2}' | sort | uniq | paste -sd "," -)" >> "$GITHUB_OUTPUT"
+
+    - name: Generate a token
+      id: generate-token
+      uses: tibdex/github-app-token@v1.7.0
+      with:
+        app_id: ${{ secrets.APP_ID }}
+        private_key: ${{ secrets.APP_PRIVATE_KEY }}
+
+    - name: Run Kics Scan
+      uses: checkmarx/kics-github-action@v1.7.0
+      with:
+        path: ${{ steps.get-changed-charts-set.outputs.CHANGED_CHARTS }}
+        token: ${{ steps.generate-token.outputs.token }} 
+        output_path: results
+        ignore_on_exit: results
+        exclude_severities: 'info,low,medium'
+        enable_comments: true
